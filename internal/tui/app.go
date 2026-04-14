@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/charmbracelet/bubbles/key"
+	"github.com/charmbracelet/bubbles/textinput"
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
 	"github.com/nicko/gorganized/internal/model"
@@ -41,6 +42,8 @@ type app struct {
 	activeView view
 	timer      *pomodoro.Timer
 	timerAlert bool // work interval just expired
+	adding     bool
+	input      textinput.Model
 	width      int
 	height     int
 }
@@ -66,9 +69,13 @@ func loadApp(gorganDir string) (app, error) {
 }
 
 func newApp(gorganDir string) app {
+	ti := textinput.New()
+	ti.Placeholder = "Task title…"
+	ti.CharLimit = 200
 	return app{
 		gorganDir: gorganDir,
 		timer:     pomodoro.New(25*time.Minute, 5*time.Minute),
+		input:     ti,
 	}
 }
 
@@ -155,6 +162,22 @@ func (a app) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 
 	case tea.KeyMsg:
+		// Adding mode intercepts most keys.
+		if a.adding {
+			switch msg.Type {
+			case tea.KeyEsc:
+				a.adding = false
+				a.input.Reset()
+				return a, nil
+			case tea.KeyEnter:
+				return a.handleAddConfirm()
+			default:
+				var cmd tea.Cmd
+				a.input, cmd = a.input.Update(msg)
+				return a, cmd
+			}
+		}
+
 		switch {
 		case key.Matches(msg, keys.Quit):
 			return a, tea.Quit
@@ -170,6 +193,12 @@ func (a app) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 		case key.Matches(msg, keys.Done):
 			return a.handleDone()
+
+		case key.Matches(msg, keys.Add):
+			a.adding = true
+			a.input.Reset()
+			a.input.Focus()
+			return a, textinput.Blink
 		}
 	}
 	return a, nil
@@ -226,6 +255,50 @@ func (a app) handleDone() (tea.Model, tea.Cmd) {
 	return a.applyTimerForState(model.StateDone)
 }
 
+// handleAddConfirm creates a new task from the input field and saves it.
+func (a app) handleAddConfirm() (tea.Model, tea.Cmd) {
+	title := strings.TrimSpace(a.input.Value())
+	a.adding = false
+	a.input.Reset()
+
+	if title == "" {
+		return a, nil
+	}
+
+	tasksDir := filepath.Join(a.gorganDir, "tasks")
+	id, err := storage.NextID(tasksDir)
+	if err != nil {
+		return a, nil
+	}
+	now := time.Now()
+	task := model.Task{
+		ID:        id,
+		Title:     title,
+		State:     model.StateTodo,
+		CreatedAt: now,
+		UpdatedAt: now,
+	}
+	if err := storage.Write(tasksDir, task); err != nil {
+		return a, nil
+	}
+	a.tasks = append(a.tasks, task)
+	a.rebuildEntries()
+
+	// Position cursor on the newly added task.
+	for i, e := range a.entries {
+		if !e.isHeader && e.task.ID == task.ID {
+			a.cursor = i
+			break
+		}
+	}
+
+	var cmd tea.Cmd
+	if a.timer.IsRunning() {
+		cmd = tickCmd()
+	}
+	return a, cmd
+}
+
 // applyTimerForState starts or resets the timer based on the new state.
 func (a app) applyTimerForState(state model.State) (tea.Model, tea.Cmd) {
 	switch state {
@@ -259,7 +332,14 @@ func (a app) View() string {
 	sb.WriteString(header)
 	sb.WriteString("\n")
 
-	if len(a.entries) == 0 {
+	// Inline add prompt
+	if a.adding {
+		sb.WriteString("\n  New task: ")
+		sb.WriteString(a.input.View())
+		sb.WriteString("\n")
+	}
+
+	if len(a.entries) == 0 && !a.adding {
 		sb.WriteString("\n  No tasks. Press 'a' to add one.\n")
 		return sb.String()
 	}
