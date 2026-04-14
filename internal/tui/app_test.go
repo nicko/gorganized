@@ -27,6 +27,11 @@ func setupApp(t *testing.T, tasks []model.Task) app {
 	if err != nil {
 		t.Fatalf("loadApp: %v", err)
 	}
+	t.Cleanup(func() {
+		if a.kbIndex != nil {
+			_ = a.kbIndex.Close()
+		}
+	})
 	return a
 }
 
