@@ -11,6 +11,7 @@ import (
 	"github.com/charmbracelet/bubbles/textinput"
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
+	"github.com/nicko/gorganized/internal/kb"
 	"github.com/nicko/gorganized/internal/model"
 	"github.com/nicko/gorganized/internal/pomodoro"
 	"github.com/nicko/gorganized/internal/storage"
@@ -36,20 +37,25 @@ const (
 )
 
 type app struct {
-	gorganDir   string
-	tasks       []model.Task
-	entries     []flatEntry
-	cursor      int
-	activeView  view
-	timer       *pomodoro.Timer
-	timerAlert  bool // work interval just expired
-	adding      bool
-	input       textinput.Model
-	editingNote bool
-	noteEditor  textarea.Model
-	noteTaskID  int // ID of the task whose notes are open
-	width       int
-	height      int
+	gorganDir      string
+	tasks          []model.Task
+	entries        []flatEntry
+	cursor         int
+	activeView     view
+	timer          *pomodoro.Timer
+	timerAlert     bool // work interval just expired
+	adding         bool
+	input          textinput.Model
+	editingNote    bool
+	noteEditor     textarea.Model
+	noteTaskID     int // ID of the task whose notes are open
+	kbIndex        *kb.Index
+	searching      bool
+	searchQuery    string
+	searchResults  []kb.Result
+	searchCursor   int
+	width          int
+	height         int
 }
 
 func loadApp(gorganDir string) (app, error) {
@@ -69,6 +75,15 @@ func loadApp(gorganDir string) (app, error) {
 			break
 		}
 	}
+
+	// Open knowledge base.
+	dbPath := filepath.Join(gorganDir, "kb.db")
+	kbIdx, err := kb.Open(dbPath)
+	if err != nil {
+		return app{}, fmt.Errorf("open kb: %w", err)
+	}
+	a.kbIndex = kbIdx
+
 	return a, nil
 }
 
@@ -167,6 +182,11 @@ func (a app) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 
 	case tea.KeyMsg:
+		// Search mode intercepts all keys.
+		if a.searching {
+			return a.handleSearchKey(msg)
+		}
+
 		// Note editing mode intercepts all keys.
 		if a.editingNote {
 			if msg.Type == tea.KeyEsc {
@@ -225,6 +245,12 @@ func (a app) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				a.activeView = viewToday
 			}
 			a.rebuildEntries()
+
+		case key.Matches(msg, keys.Search):
+			a.searching = true
+			a.searchQuery = ""
+			a.searchResults = nil
+			a.searchCursor = 0
 		}
 	}
 	return a, nil
@@ -260,7 +286,7 @@ func (a app) handleEnter() (tea.Model, tea.Cmd) {
 	return a.applyTimerForState(to)
 }
 
-// handleDone marks the selected task as done.
+// handleDone marks the selected task as done and indexes it in the KB.
 func (a app) handleDone() (tea.Model, tea.Cmd) {
 	task, ok := a.selectedTask()
 	if !ok {
@@ -278,7 +304,92 @@ func (a app) handleDone() (tea.Model, tea.Cmd) {
 	}
 	a.rebuildEntries()
 
+	// Index in knowledge base (best-effort; don't block on error).
+	if a.kbIndex != nil {
+		_ = a.kbIndex.Index(task)
+	}
+
 	return a.applyTimerForState(model.StateDone)
+}
+
+// handleSearchKey processes keypresses while the search overlay is open.
+func (a app) handleSearchKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+	switch msg.Type {
+	case tea.KeyEsc:
+		a.searching = false
+		a.searchQuery = ""
+		a.searchResults = nil
+		a.searchCursor = 0
+		return a, nil
+
+	case tea.KeyEnter:
+		if len(a.searchResults) > 0 && a.searchCursor < len(a.searchResults) {
+			targetID := a.searchResults[a.searchCursor].TaskID
+			a.searching = false
+			a.searchQuery = ""
+			a.searchResults = nil
+			a.searchCursor = 0
+			// Navigate to the task in the current view.
+			for i, e := range a.entries {
+				if !e.isHeader && e.task.ID == targetID {
+					a.cursor = i
+					return a, nil
+				}
+			}
+			// Task not in current view — try switching to All.
+			if a.activeView == viewToday {
+				a.activeView = viewAll
+				a.rebuildEntries()
+				for i, e := range a.entries {
+					if !e.isHeader && e.task.ID == targetID {
+						a.cursor = i
+						break
+					}
+				}
+			}
+		}
+		return a, nil
+
+	case tea.KeyUp:
+		if a.searchCursor > 0 {
+			a.searchCursor--
+		}
+		return a, nil
+
+	case tea.KeyDown:
+		if a.searchCursor < len(a.searchResults)-1 {
+			a.searchCursor++
+		}
+		return a, nil
+
+	case tea.KeyBackspace, tea.KeyDelete:
+		if len(a.searchQuery) > 0 {
+			a.searchQuery = a.searchQuery[:len([]rune(a.searchQuery))-1]
+			a.runSearch()
+		}
+		return a, nil
+
+	default:
+		if len(msg.Runes) > 0 {
+			a.searchQuery += string(msg.Runes)
+			a.runSearch()
+		}
+		return a, nil
+	}
+}
+
+// runSearch executes the current query against the KB index.
+func (a *app) runSearch() {
+	if a.kbIndex == nil {
+		return
+	}
+	results, err := a.kbIndex.Search(a.searchQuery)
+	if err != nil {
+		a.searchResults = nil
+		return
+	}
+	a.searchResults = results
+	a.searchCursor = 0
 }
 
 // handleNoteOpen opens the note editor for the selected task.
@@ -399,6 +510,12 @@ func (a app) View() string {
 	)
 	sb.WriteString(header)
 	sb.WriteString("\n")
+
+	// Search overlay
+	if a.searching {
+		sb.WriteString(renderSearchOverlay(a.searchQuery, a.searchResults, a.searchCursor))
+		return sb.String()
+	}
 
 	// Full-screen note editor overlay
 	if a.editingNote {
