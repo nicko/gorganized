@@ -37,4 +37,11 @@ var (
 			Foreground(lipgloss.Color("252")).
 			PaddingLeft(1).
 			PaddingRight(1)
+
+	styleStatusBarAlert = lipgloss.NewStyle().
+				Background(lipgloss.Color("166")). // orange — work interval expired
+				Foreground(lipgloss.Color("255")).
+				Bold(true).
+				PaddingLeft(1).
+				PaddingRight(1)
 )
