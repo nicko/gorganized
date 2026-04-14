@@ -217,6 +217,14 @@ func (a app) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 		case key.Matches(msg, keys.Note):
 			return a.handleNoteOpen()
+
+		case key.Matches(msg, keys.Tab):
+			if a.activeView == viewToday {
+				a.activeView = viewAll
+			} else {
+				a.activeView = viewToday
+			}
+			a.rebuildEntries()
 		}
 	}
 	return a, nil
