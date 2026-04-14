@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/charmbracelet/bubbles/key"
+	"github.com/charmbracelet/bubbles/textarea"
 	"github.com/charmbracelet/bubbles/textinput"
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
@@ -35,17 +36,20 @@ const (
 )
 
 type app struct {
-	gorganDir  string
-	tasks      []model.Task
-	entries    []flatEntry
-	cursor     int
-	activeView view
-	timer      *pomodoro.Timer
-	timerAlert bool // work interval just expired
-	adding     bool
-	input      textinput.Model
-	width      int
-	height     int
+	gorganDir   string
+	tasks       []model.Task
+	entries     []flatEntry
+	cursor      int
+	activeView  view
+	timer       *pomodoro.Timer
+	timerAlert  bool // work interval just expired
+	adding      bool
+	input       textinput.Model
+	editingNote bool
+	noteEditor  textarea.Model
+	noteTaskID  int // ID of the task whose notes are open
+	width       int
+	height      int
 }
 
 func loadApp(gorganDir string) (app, error) {
@@ -73,9 +77,10 @@ func newApp(gorganDir string) app {
 	ti.Placeholder = "Task title…"
 	ti.CharLimit = 200
 	return app{
-		gorganDir: gorganDir,
-		timer:     pomodoro.New(25*time.Minute, 5*time.Minute),
-		input:     ti,
+		gorganDir:  gorganDir,
+		timer:      pomodoro.New(25*time.Minute, 5*time.Minute),
+		input:      ti,
+		noteEditor: newNoteEditor(),
 	}
 }
 
@@ -162,6 +167,16 @@ func (a app) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 
 	case tea.KeyMsg:
+		// Note editing mode intercepts all keys.
+		if a.editingNote {
+			if msg.Type == tea.KeyEsc {
+				return a.handleNoteClose()
+			}
+			var cmd tea.Cmd
+			a.noteEditor, cmd = a.noteEditor.Update(msg)
+			return a, cmd
+		}
+
 		// Adding mode intercepts most keys.
 		if a.adding {
 			switch msg.Type {
@@ -199,6 +214,9 @@ func (a app) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			a.input.Reset()
 			a.input.Focus()
 			return a, textinput.Blink
+
+		case key.Matches(msg, keys.Note):
+			return a.handleNoteOpen()
 		}
 	}
 	return a, nil
@@ -253,6 +271,48 @@ func (a app) handleDone() (tea.Model, tea.Cmd) {
 	a.rebuildEntries()
 
 	return a.applyTimerForState(model.StateDone)
+}
+
+// handleNoteOpen opens the note editor for the selected task.
+func (a app) handleNoteOpen() (tea.Model, tea.Cmd) {
+	task, ok := a.selectedTask()
+	if !ok {
+		return a, nil
+	}
+	a.editingNote = true
+	a.noteTaskID = task.ID
+	a.noteEditor = newNoteEditor()
+	a.noteEditor.SetValue(task.Notes)
+	a.noteEditor.SetWidth(a.width - 6)
+	a.noteEditor.SetHeight(a.height - 8)
+	a.noteEditor.Focus()
+	return a, textarea.Blink
+}
+
+// handleNoteClose saves the note editor content and closes the overlay.
+func (a app) handleNoteClose() (tea.Model, tea.Cmd) {
+	notes := a.noteEditor.Value()
+	a.editingNote = false
+	a.noteEditor.Blur()
+
+	// Find and update the task.
+	tasksDir := filepath.Join(a.gorganDir, "tasks")
+	for i, task := range a.tasks {
+		if task.ID == a.noteTaskID {
+			a.tasks[i].Notes = notes
+			a.tasks[i].UpdatedAt = time.Now()
+			_ = storage.Write(tasksDir, a.tasks[i])
+			// Refresh the entry so the in-memory copy matches.
+			a.rebuildEntries()
+			break
+		}
+	}
+
+	var cmd tea.Cmd
+	if a.timer.IsRunning() {
+		cmd = tickCmd()
+	}
+	return a, cmd
 }
 
 // handleAddConfirm creates a new task from the input field and saves it.
@@ -331,6 +391,26 @@ func (a app) View() string {
 	)
 	sb.WriteString(header)
 	sb.WriteString("\n")
+
+	// Full-screen note editor overlay
+	if a.editingNote {
+		var noteSB strings.Builder
+		// Find task title for the header
+		taskTitle := "Notes"
+		for _, task := range a.tasks {
+			if task.ID == a.noteTaskID {
+				taskTitle = task.Title
+				break
+			}
+		}
+		noteSB.WriteString(styleNoteHeader.Render("Notes: " + taskTitle))
+		noteSB.WriteString("\n")
+		noteSB.WriteString(a.noteEditor.View())
+		noteSB.WriteString("\n")
+		noteSB.WriteString(lipgloss.NewStyle().Foreground(lipgloss.Color("243")).Render("  esc: save & close"))
+		sb.WriteString(styleNoteOverlay.Render(noteSB.String()))
+		return sb.String()
+	}
 
 	// Inline add prompt
 	if a.adding {
