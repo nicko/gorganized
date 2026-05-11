@@ -26,6 +26,22 @@ type Timer struct {
 	lastTick  time.Time // last time that triggered a completion, to prevent double-fire
 }
 
+// currentDuration returns the duration for the active phase.
+func (t *Timer) currentDuration() time.Duration {
+	if t.phase == PhaseBreak {
+		return t.BreakDuration
+	}
+	return t.WorkDuration
+}
+
+// String returns "work" or "break" for use in state files and display.
+func (p Phase) String() string {
+	if p == PhaseBreak {
+		return "break"
+	}
+	return "work"
+}
+
 // New creates a Timer with the given work and break durations.
 func New(work, breakDur time.Duration) *Timer {
 	return &Timer{
@@ -65,11 +81,7 @@ func (t *Timer) Remaining(now time.Time) (remaining time.Duration, phase Phase) 
 	if !t.running {
 		return 0, t.phase
 	}
-	duration := t.WorkDuration
-	if t.phase == PhaseBreak {
-		duration = t.BreakDuration
-	}
-	remaining = duration - now.Sub(t.startedAt)
+	remaining = t.currentDuration() - now.Sub(t.startedAt)
 	if remaining < 0 {
 		remaining = 0
 	}
@@ -84,16 +96,11 @@ func (t *Timer) Tick(now time.Time) (remaining time.Duration, phase Phase, justC
 		return 0, t.phase, false
 	}
 
-	duration := t.WorkDuration
-	if t.phase == PhaseBreak {
-		duration = t.BreakDuration
-	}
-
 	elapsed := now.Sub(t.startedAt)
-	remaining = duration - elapsed
+	remaining = t.currentDuration() - elapsed
 
 	if remaining <= 0 && now != t.lastTick {
-		// Interval just crossed the boundary — transition once per unique tick time.
+		// Interval just crossed the boundary — stop and wait for user to advance.
 		t.lastTick = now
 		if t.phase == PhaseWork {
 			t.count++
@@ -101,7 +108,7 @@ func (t *Timer) Tick(now time.Time) (remaining time.Duration, phase Phase, justC
 		} else {
 			t.phase = PhaseWork
 		}
-		t.startedAt = now
+		t.running = false
 		return 0, t.phase, true
 	}
 
@@ -109,6 +116,14 @@ func (t *Timer) Tick(now time.Time) (remaining time.Duration, phase Phase, justC
 		remaining = 0
 	}
 	return remaining, t.phase, false
+}
+
+// Advance starts the pending phase. Call after Tick returns justCompleted=true
+// to begin the next interval when the user is ready.
+func (t *Timer) Advance(now time.Time) {
+	t.running = true
+	t.startedAt = now
+	t.lastTick = time.Time{}
 }
 
 // FormatRemaining formats a duration as "MM:SS".

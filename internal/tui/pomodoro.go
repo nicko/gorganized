@@ -26,7 +26,7 @@ func timerStatus(tm *pomodoro.Timer, now time.Time) string {
 	}
 	remaining, phase := tm.Remaining(now)
 	if phase == pomodoro.PhaseWork {
-		return fmt.Sprintf("  [Pomodoro %d] %s remaining", tm.Count()+1, pomodoro.FormatRemaining(remaining))
+		return fmt.Sprintf("[Pomodoro %d] %s remaining", tm.Count()+1, pomodoro.FormatRemaining(remaining))
 	}
-	return fmt.Sprintf("  [Break] %s remaining", pomodoro.FormatRemaining(remaining))
+	return fmt.Sprintf("[Break] %s remaining", pomodoro.FormatRemaining(remaining))
 }

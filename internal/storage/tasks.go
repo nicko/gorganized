@@ -14,12 +14,15 @@ import (
 
 // frontmatter is the YAML header stored at the top of each task file.
 type frontmatter struct {
-	ID        int     `yaml:"id"`
-	Title     string  `yaml:"title"`
-	State     string  `yaml:"state"`
-	CreatedAt string  `yaml:"created_at"`
-	UpdatedAt string  `yaml:"updated_at"`
-	DoneAt    *string `yaml:"done_at,omitempty"`
+	ID          int     `yaml:"id"`
+	Title       string  `yaml:"title"`
+	State       string  `yaml:"state"`
+	Order       int     `yaml:"order"`
+	TimeSpent   int     `yaml:"time_spent"`
+	ActiveSince *string `yaml:"active_since,omitempty"`
+	CreatedAt   string  `yaml:"created_at"`
+	UpdatedAt   string  `yaml:"updated_at"`
+	DoneAt      *string `yaml:"done_at,omitempty"`
 }
 
 const timeLayout = "2006-01-02T15:04:05Z07:00"
@@ -31,14 +34,22 @@ func Write(dir string, t model.Task) error {
 		s := t.DoneAt.UTC().Format(timeLayout)
 		doneAtStr = &s
 	}
+	var activeSinceStr *string
+	if t.ActiveSince != nil {
+		s := t.ActiveSince.UTC().Format(timeLayout)
+		activeSinceStr = &s
+	}
 
 	fm := frontmatter{
-		ID:        t.ID,
-		Title:     t.Title,
-		State:     string(t.State),
-		CreatedAt: t.CreatedAt.UTC().Format(timeLayout),
-		UpdatedAt: t.UpdatedAt.UTC().Format(timeLayout),
-		DoneAt:    doneAtStr,
+		ID:          t.ID,
+		Title:       t.Title,
+		State:       string(t.State),
+		Order:       t.Order,
+		TimeSpent:   t.TimeSpent,
+		ActiveSince: activeSinceStr,
+		CreatedAt:   t.CreatedAt.UTC().Format(timeLayout),
+		UpdatedAt:   t.UpdatedAt.UTC().Format(timeLayout),
+		DoneAt:      doneAtStr,
 	}
 
 	fmBytes, err := yaml.Marshal(fm)
@@ -93,6 +104,8 @@ func Read(path string) (model.Task, error) {
 		Title:     fm.Title,
 		State:     model.State(fm.State),
 		Notes:     notes,
+		Order:     fm.Order,
+		TimeSpent: fm.TimeSpent,
 		CreatedAt: createdAt,
 		UpdatedAt: updatedAt,
 	}
@@ -103,6 +116,14 @@ func Read(path string) (model.Task, error) {
 			return model.Task{}, fmt.Errorf("parse done_at: %w", err)
 		}
 		task.DoneAt = &t
+	}
+
+	if fm.ActiveSince != nil {
+		t, err := time.Parse(timeLayout, *fm.ActiveSince)
+		if err != nil {
+			return model.Task{}, fmt.Errorf("parse active_since: %w", err)
+		}
+		task.ActiveSince = &t
 	}
 
 	return task, nil

@@ -16,7 +16,6 @@ The core workflow:
 ## 2. Commands
 
 ```bash
-go mod init github.com/nicko/gorganized   # one-time setup
 go build -o gorgan ./cmd/gorgan           # build binary
 ./gorgan                                  # run TUI in current directory
 go test ./...                             # run all tests
@@ -38,24 +37,23 @@ cmd/gorgan/
 internal/
   model/
     task.go                 # Task struct, State type, state transitions
-    note.go                 # Note struct (attached to a Task)
   storage/
-    tasks.go                # read/write tasks as markdown files
-    markdown.go             # frontmatter parsing (YAML) + body as notes
+    tasks.go                # read/write tasks as markdown files (YAML frontmatter + body)
   tui/
     app.go                  # root Bubble Tea model, view switching
-    tasklist.go             # task list view (grouped by state)
-    noteeditor.go           # inline note editor overlay
-    pomodoro.go             # pomodoro timer widget
-    keys.go                 # keybindings (keyboard map)
+    tasklist.go             # task list view (grouped by state, ordered)
+    noteeditor.go           # note editor overlay
+    preview.go              # preview panel (right-hand side)
+    pomodoro.go             # pomodoro tick message + timer status formatting
+    searchview.go           # search overlay rendering
+    keys.go                 # keybindings
     styles.go               # Lip Gloss styles
   kb/
-    index.go                # SQLite-backed knowledge base: insert + search
-
+    index.go                # SQLite FTS5 knowledge base: insert, search, remove
   pomodoro/
     timer.go                # pure timer logic (no TUI dependency)
 
-.gorgan/                    # created in CWD on first run (user-prompted)
+.gorgan/
   tasks/                    # one .md file per task
   kb.db                     # SQLite knowledge base index
 ```
@@ -66,12 +64,12 @@ internal/
 
 | Concern | Library |
 |---|---|
-| TUI framework | [Bubble Tea](https://github.com/charmbracelet/bubbletea) |
-| Styling | [Lip Gloss](https://github.com/charmbracelet/lipgloss) |
-| Reusable TUI components | [Bubbles](https://github.com/charmbracelet/bubbles) (textarea, spinner, list) |
+| TUI framework | `github.com/charmbracelet/bubbletea` |
+| Styling | `github.com/charmbracelet/lipgloss` |
+| TUI components | `github.com/charmbracelet/bubbles` (textarea, textinput) |
+| Markdown rendering | `github.com/charmbracelet/glamour` |
 | Markdown frontmatter | `gopkg.in/yaml.v3` |
 | SQLite | `modernc.org/sqlite` (pure Go, no CGo) |
-| Unique IDs | `github.com/google/uuid` |
 
 ---
 
@@ -79,18 +77,22 @@ internal/
 
 ### Task (stored as `.gorgan/tasks/<id>.md`)
 
+Task IDs are incrementing integers, zero-padded to 5 digits (`00001.md`).
+
 ```markdown
 ---
-id: <uuid>
+id: 1
 title: "Buy groceries"
-state: todo          # todo | active | inactive | done
+state: todo              # todo | active | inactive | done
+order: 3                 # position within state group (lower = higher priority)
+time_spent: 5400         # accumulated seconds across all active sessions
+active_since: null       # RFC3339 timestamp set when state → active; cleared otherwise
 created_at: 2026-04-14T10:00:00Z
 updated_at: 2026-04-14T10:00:00Z
-done_at: null        # set when state → done
+done_at: null            # set when state → done; cleared on undo
 ---
 
-Notes body goes here in plain markdown.
-Multiple paragraphs supported.
+Notes body in plain markdown.
 ```
 
 ### States
@@ -98,9 +100,9 @@ Multiple paragraphs supported.
 | State | Description |
 |---|---|
 | `todo` | Not yet started |
-| `active` | Actively being worked on; Pomodoro timer running |
-| `inactive` | Work interrupted; timer reset |
-| `done` | Completed; notes indexed into KB |
+| `active` | Being worked on; Pomodoro timer running, time accumulating |
+| `inactive` | Work interrupted; timer reset, time saved to `time_spent` |
+| `done` | Completed; notes indexed in KB |
 
 ### State Transitions
 
@@ -110,84 +112,135 @@ active   → inactive
 active   → done
 inactive → active
 inactive → done
-done     → (no transition; read-only)
+done     → inactive   ← undo (space); clears done_at, removes from KB
 ```
+
+### Time Tracking
+
+- `time_spent` stores accumulated seconds from all past active sessions.
+- `active_since` is set when a task becomes `active` and cleared when it becomes `inactive` or `done`.
+- **Total time displayed** = `time_spent + (now − active_since)` when active; `time_spent` otherwise.
+- On `active → inactive` or `active → done`: add `now − active_since` to `time_spent`, clear `active_since`.
+- On `done → inactive` (undo): do not modify `time_spent` (keep the time already recorded).
+- On app load: if a task is `active` and `active_since` is set, time resumes accumulating from that timestamp.
+
+### Task Ordering
+
+- `order` is an integer within a state group. Lower = higher priority = shown first.
+- `done` tasks have no meaningful order; they are always sorted by `done_at` descending.
+- When a task transitions to a new state, it is assigned `order = max(existing orders in that group) + 1`.
+- A reorder operation (`ctrl+↑` / `ctrl+↓`) swaps `order` between two adjacent tasks, writing exactly 2 files.
+- If a group has duplicate `order` values (e.g. tasks created before this field existed), the group is normalised on first reorder (sequential integers assigned, one file write per task in group).
 
 ### Knowledge Base (SQLite `kb.db`)
 
-Full-text search (FTS5) over task titles and notes. FTS5 is SQLite's built-in full-text search engine, implemented as a virtual table — this is a SQLite concept meaning it manages an inverted index internally. The `kb.db` file is persisted on disk in `.gorgan/` and is only appended to when tasks are marked done; it is never regenerated from scratch on startup.
+FTS5 virtual table over task titles and notes. Populated on `→ done`, removed on `done → inactive` (undo).
 
 ```sql
-CREATE VIRTUAL TABLE IF NOT EXISTS kb USING fts5(task_id, title, body);
+CREATE VIRTUAL TABLE IF NOT EXISTS kb USING fts5(task_id UNINDEXED, title, body);
 ```
 
 ---
 
 ## 6. TUI Design
 
-### Views
+### Keyboard Reference
 
 | Key | Action |
 |---|---|
-| `tab` | Toggle between **Today** view and **All** view |
 | `j` / `↓` | Move cursor down |
 | `k` / `↑` | Move cursor up |
-| `enter` | Cycle state: todo → active → inactive |
-| `n` | Open note editor for selected task |
-| `esc` | Close note editor (auto-save) |
-| `a` | Add new task (prompt for title inline) |
+| `shift+↑` / `shift+↓` | Move selected task up/down within its state group |
+| `space` | Cycle state: todo→active, active→inactive, inactive→active, done→inactive (undo) |
+| `enter` | Open note editor overlay |
 | `d` | Mark selected task done |
-| `/` | Search knowledge base |
+| `n` | Add new task (inline title prompt) |
+| `esc` | Close note editor / search overlay (auto-saves notes) |
+| `p` | Toggle preview panel |
+| `tab` | Toggle Today / All view |
+| `/` | Open search overlay |
 | `q` | Quit |
+
+### Layout
+
+**Without preview panel (`p` to toggle):**
+```
+┌─────────────────────────────────────────┐
+│ status bar (view name, timer, time)     │
+├─────────────────────────────────────────┤
+│                                         │
+│  task list (full width)                 │
+│                                         │
+└─────────────────────────────────────────┘
+```
+
+**With preview panel (default):**
+```
+┌───────────────────────┬─────────────────┐
+│ status bar                              │
+├───────────────────────┼─────────────────┤
+│                       │ Title           │
+│  task list (60%)      │ State / Time    │
+│                       │ Created         │
+│                       │ Pomodoros       │
+│                       │ ─────────────── │
+│                       │ Notes (glamour) │
+└───────────────────────┴─────────────────┘
+```
 
 ### Today View
 
-Shows tasks grouped and separated by state in this order:
-1. **Active**
-2. **Inactive**
-3. **Todo**
-
-Done tasks are included in **Today** view until midnight of the day they were completed, then only appear in **All** view.
+Tasks grouped in order: **Active → Inactive → Todo**.
+Done tasks completed today remain visible until midnight, then move to All only.
 
 ### All View
 
-Shows all tasks including **Done**, grouped by state:
-1. Active
-2. Inactive
-3. Todo
-4. Done
+Tasks grouped: **Active → Inactive → Todo → Done** (done sorted by `done_at` descending).
+
+### Preview Panel
+
+- Rendered via `glamour` with a dark terminal style.
+- Updates immediately as the cursor moves.
+- Metadata section shows: title, state (coloured), time spent (`1h 23m` format), pomodoro count, created date.
+- Notes section renders the markdown body below a divider.
+- Empty notes shows a placeholder: `No notes yet. Press enter to add.`
+- When no task is selected (empty list): panel shows placeholder text.
+
+### Status Bar
+
+Always visible at the top. Content when a task is active:
+```
+gorganized  [Today]  [Pomodoro 2] 18:42 remaining  ·  Active: 1h 23m total  tab: switch  q: quit
+```
+
+Time display format: `Xh Ym` (e.g. `1h 23m`, `23m`, `< 1m`). Only hours shown if ≥ 1h.
 
 ### Note Editor
 
-Opened as a full-screen overlay using a `bubbles/textarea`. Auto-saves to the task's markdown file on `esc`. Does not require an explicit save command.
+Full-screen `bubbles/textarea` overlay, pre-filled with existing notes. `esc` auto-saves.
 
 ### Pomodoro Timer
 
-Displayed in the header/status bar when a task is **active**.
-- Work interval: 25 minutes
-- Short break: 5 minutes
-- Shows: `[Pomodoro 1] 18:42 remaining` or `[Break] 4:12 remaining`
-- When the work interval ends, a visual alert is shown; the timer does not auto-transition the task state
-- Timer resets when the task is marked inactive or done
+25m work / 5m break. Status bar turns orange when a work interval expires. Timer resets on inactive/done.
 
 ---
 
 ## 7. Startup Behaviour
 
-On launch, `gorgan` checks for `.gorgan/` in the current working directory:
-
-- If absent: prompt the user `".gorgan/ not found. Create it here? [y/N]"`. Exit if denied.
-- If present: load tasks from `.gorgan/tasks/` and open the KB connection.
+- `.gorgan/` absent: prompt `".gorgan/ not found. Create it here? [y/N]"`. Exit if denied.
+- `.gorgan/` present: load tasks, open KB, resume timer if any task is `active`.
+- Tasks without an `order` field are assigned sequential orders on first load (by `created_at`).
 
 ---
 
 ## 8. Testing Strategy
 
-- **Unit tests** for `internal/model` (state machine transitions)
-- **Unit tests** for `internal/pomodoro` (timer tick logic, interval boundaries)
-- **Integration tests** for `internal/storage` (write task → read back, frontmatter round-trip)
-- **Integration tests** for `internal/kb` (index task → FTS query returns it)
-- No tests for TUI rendering (Bubble Tea models are tested via `Update()` message dispatch if needed, not visual output)
+- **Unit tests** for `internal/model`: state transitions (including undo), time accumulation logic, order normalisation.
+- **Unit tests** for `internal/pomodoro`: tick, interval boundaries, `Remaining`.
+- **Integration tests** for `internal/storage`: round-trip including new fields (`order`, `time_spent`, `active_since`).
+- **Integration tests** for `internal/kb`: index, search, remove (undo path).
+- **TUI behavioural tests** via `Update()` dispatch: reorder swaps, undo transition, preview toggle, time display.
+- No tests for TUI rendering output (`View()`), glamour output, or terminal-specific layout.
 
 ---
 
@@ -197,6 +250,9 @@ On launch, `gorgan` checks for `.gorgan/` in the current working directory:
 |---|---|
 | No network access | All I/O is local filesystem + SQLite only |
 | Scoped to CWD | All reads and writes go to `.gorgan/` in the directory where `gorgan` is invoked |
-| Prompt before creating dirs | Never silently create `.gorgan/`; always ask first |
-| Non-destructive done | Marking done never deletes the task file; it updates frontmatter and indexes notes |
-| No auto-state changes | Pomodoro expiry does not automatically transition a task; it only notifies |
+| Prompt before creating | Never silently create `.gorgan/`; always ask first |
+| Non-destructive done | Marking done updates frontmatter and indexes notes; never deletes the file |
+| Undo removes from KB | `done → inactive` removes the task from `kb.db` (it is no longer complete knowledge) |
+| No auto-state changes | Pomodoro expiry notifies only; never transitions task state automatically |
+| Order on transition | A task appended to a new state group always gets the highest order (lowest priority) in that group |
+| Time on undo | Undoing done preserves `time_spent`; the time worked is not erased |

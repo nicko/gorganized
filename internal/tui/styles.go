@@ -44,4 +44,10 @@ var (
 				Bold(true).
 				PaddingLeft(1).
 				PaddingRight(1)
+
+	styleHelpBar = lipgloss.NewStyle().
+			Background(lipgloss.Color("234")).
+			Foreground(lipgloss.Color("241")).
+			PaddingLeft(1).
+			PaddingRight(1)
 )

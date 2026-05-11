@@ -103,13 +103,56 @@ func TestTimer_CountIncrementsAfterWorkInterval(t *testing.T) {
 	}
 }
 
+func TestTimer_StopsAfterPhaseExpiry(t *testing.T) {
+	tm := newTimer()
+	start := time.Now()
+	tm.Start(start)
+
+	tm.Tick(start.Add(work)) // complete work interval
+
+	if tm.IsRunning() {
+		t.Error("timer should stop after phase expiry, not auto-advance")
+	}
+	if tm.CurrentPhase() != PhaseBreak {
+		t.Error("phase should be set to break while waiting for user to advance")
+	}
+}
+
+func TestTimer_Advance_StartsNextPhase(t *testing.T) {
+	tm := newTimer()
+	start := time.Now()
+	tm.Start(start)
+
+	boundary := start.Add(work)
+	tm.Tick(boundary) // work expires, timer stops
+
+	advanceAt := boundary.Add(5 * time.Second)
+	tm.Advance(advanceAt)
+
+	if !tm.IsRunning() {
+		t.Error("timer should be running after Advance()")
+	}
+	remaining, phase, _ := tm.Tick(advanceAt.Add(time.Minute))
+	if phase != PhaseBreak {
+		t.Errorf("phase after advance: want PhaseBreak, got %v", phase)
+	}
+	want := short - time.Minute
+	if remaining != want {
+		t.Errorf("remaining after advance: got %v, want %v", remaining, want)
+	}
+}
+
 func TestTimer_BreakTransitionsBackToWork(t *testing.T) {
 	tm := newTimer()
 	start := time.Now()
 	tm.Start(start)
 
-	tm.Tick(start.Add(work))                    // complete work → break starts
-	_, phase, complete := tm.Tick(start.Add(work + short)) // complete break
+	boundary := start.Add(work)
+	tm.Tick(boundary)        // complete work → timer stops, phase=Break
+	tm.Advance(boundary)     // user advances to break
+
+	breakEnd := boundary.Add(short)
+	_, phase, complete := tm.Tick(breakEnd) // complete break → timer stops, phase=Work
 
 	if !complete {
 		t.Error("break interval should be complete")

@@ -177,6 +177,39 @@ func TestIndex_EmptyQueryReturnsNothing(t *testing.T) {
 	}
 }
 
+func TestRemove_TaskNoLongerSearchable(t *testing.T) {
+	idx := openTestIndex(t)
+	task := makeTask(1, "Redis migration", "Moved session tokens to Redis")
+	if err := idx.Index(task); err != nil {
+		t.Fatal(err)
+	}
+	// Confirm it's findable.
+	results, err := idx.Search("Redis")
+	if err != nil || len(results) == 0 {
+		t.Fatalf("task should be searchable before Remove: %v, %v", err, results)
+	}
+	// Remove it.
+	if err := idx.Remove(1); err != nil {
+		t.Fatalf("Remove: %v", err)
+	}
+	// Confirm it's gone.
+	results, err = idx.Search("Redis")
+	if err != nil {
+		t.Fatalf("Search after Remove: %v", err)
+	}
+	if len(results) != 0 {
+		t.Errorf("after Remove, task should not be searchable; got %d results", len(results))
+	}
+}
+
+func TestRemove_NonExistentIsNoOp(t *testing.T) {
+	idx := openTestIndex(t)
+	// Should not error even if the task was never indexed.
+	if err := idx.Remove(999); err != nil {
+		t.Errorf("Remove of non-existent task should not error: %v", err)
+	}
+}
+
 func TestResult_HasSnippet(t *testing.T) {
 	idx := openTestIndex(t)
 	if err := idx.Index(makeTask(1, "Refactor auth", "Moved the session token storage to Redis for compliance")); err != nil {

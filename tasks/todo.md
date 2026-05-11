@@ -6,6 +6,13 @@
 ## Done
 
 - [x] **Task 1** — Project scaffold (`go.mod`, `cmd/gorgan/main.go`, stub packages, `.gorgan/` prompt)
+- [x] **Task 2** — Task model + storage (`internal/model`, `internal/storage`, tests) → CHECKPOINT A ✓
+- [x] **Task 3** — Basic TUI: Today view, read-only list, keyboard nav
+- [x] **Task 4** — State transitions + pomodoro logic + timer widget
+- [x] **Task 5** — Add task inline (`a` key, textinput, write to disk)
+- [x] **Task 6** — Note editor overlay (`n` key, textarea overlay, auto-save) → CHECKPOINT B ✓
+- [x] **Task 7** — All view + tab toggle + today-filter for done tasks
+- [x] **Task 8** — Knowledge base (SQLite FTS5) + search overlay → CHECKPOINT C ✓
 
 ## Backlog
 - [ ] **Task 2** — Task model + storage (`internal/model`, `internal/storage`, tests) → CHECKPOINT A

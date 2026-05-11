@@ -6,6 +6,7 @@ import (
 	"testing"
 	"time"
 
+	tea "github.com/charmbracelet/bubbletea"
 	"github.com/nicko/gorganized/internal/model"
 	"github.com/nicko/gorganized/internal/storage"
 )
@@ -44,7 +45,7 @@ func TestEnterKey_TodoBecomesActive(t *testing.T) {
 	a := setupApp(t, tasks)
 
 	// cursor should be on the only task
-	a2, _ := a.Update(keyMsg("enter"))
+	a2, _ := a.Update(tea.KeyMsg{Type: tea.KeySpace})
 	app2 := a2.(app)
 
 	// find the task in app2's task list
@@ -53,7 +54,7 @@ func TestEnterKey_TodoBecomesActive(t *testing.T) {
 		if tk.ID == 1 {
 			found = true
 			if tk.State != model.StateActive {
-				t.Errorf("after enter on todo: state = %s, want active", tk.State)
+				t.Errorf("after space on todo: state = %s, want active", tk.State)
 			}
 		}
 	}
@@ -68,12 +69,12 @@ func TestEnterKey_ActiveBecomesInactive(t *testing.T) {
 	}
 	a := setupApp(t, tasks)
 
-	a2, _ := a.Update(keyMsg("enter"))
+	a2, _ := a.Update(tea.KeyMsg{Type: tea.KeySpace})
 	app2 := a2.(app)
 
 	for _, tk := range app2.tasks {
 		if tk.ID == 1 && tk.State != model.StateInactive {
-			t.Errorf("after enter on active: state = %s, want inactive", tk.State)
+			t.Errorf("after space on active: state = %s, want inactive", tk.State)
 		}
 	}
 }
@@ -86,7 +87,7 @@ func TestDKey_MarksDone(t *testing.T) {
 	// First make it active so d is valid (todo → active → done, but spec allows inactive → done)
 	// Actually from spec: active → done and inactive → done.
 	// Let's put it in active first.
-	a2, _ := a.Update(keyMsg("enter")) // todo → active
+	a2, _ := a.Update(tea.KeyMsg{Type: tea.KeySpace}) // todo → active
 	a3, _ := a2.(app).Update(keyMsg("d"))
 	app3 := a3.(app)
 
@@ -111,7 +112,7 @@ func TestStateChange_RebuildsList(t *testing.T) {
 		}
 	}
 
-	a2, _ := a.Update(keyMsg("enter")) // task 1: todo → active
+	a2, _ := a.Update(tea.KeyMsg{Type: tea.KeySpace}) // task 1: todo → active
 	app2 := a2.(app)
 
 	// After: active group should exist
@@ -132,7 +133,7 @@ func TestActiveTask_StartsTimer(t *testing.T) {
 	}
 	a := setupApp(t, tasks)
 
-	a2, _ := a.Update(keyMsg("enter")) // todo → active
+	a2, _ := a.Update(tea.KeyMsg{Type: tea.KeySpace}) // todo → active
 	app2 := a2.(app)
 
 	if !app2.timer.IsRunning() {
@@ -148,7 +149,7 @@ func TestInactiveTask_ResetsTimer(t *testing.T) {
 	// Manually start the timer as loadApp would do for an existing active task
 	a.timer.Start(time.Now())
 
-	a2, _ := a.Update(keyMsg("enter")) // active → inactive
+	a2, _ := a.Update(tea.KeyMsg{Type: tea.KeySpace}) // active → inactive
 	app2 := a2.(app)
 
 	if app2.timer.IsRunning() {

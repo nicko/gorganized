@@ -15,17 +15,17 @@ import (
 func TestAddKey_EntersAddingMode(t *testing.T) {
 	a := setupApp(t, nil)
 
-	a2, _ := a.Update(keyMsg("a"))
+	a2, _ := a.Update(keyMsg("n"))
 	app2 := a2.(app)
 
 	if !app2.adding {
-		t.Error("after pressing 'a', app should be in adding mode")
+		t.Error("after pressing 'n', app should be in adding mode")
 	}
 }
 
 func TestEsc_CancelsAddingMode(t *testing.T) {
 	a := setupApp(t, nil)
-	a2, _ := a.Update(keyMsg("a"))
+	a2, _ := a.Update(keyMsg("n"))
 
 	a3, _ := a2.(app).Update(tea.KeyMsg{Type: tea.KeyEsc})
 	app3 := a3.(app)
@@ -47,7 +47,7 @@ func TestAddTask_CreatesTaskOnEnter(t *testing.T) {
 	}
 
 	// Enter adding mode
-	a2, _ := a.Update(keyMsg("a"))
+	a2, _ := a.Update(keyMsg("n"))
 
 	// Type a title character by character
 	a3 := a2.(app)
@@ -96,7 +96,7 @@ func TestAddTask_CreatesTaskOnEnter(t *testing.T) {
 
 func TestAddTask_EmptyTitleIgnored(t *testing.T) {
 	a := setupApp(t, nil)
-	a2, _ := a.Update(keyMsg("a"))
+	a2, _ := a.Update(keyMsg("n"))
 
 	// Confirm immediately with no title typed
 	a3, _ := a2.(app).Update(tea.KeyMsg{Type: tea.KeyEnter})
@@ -118,7 +118,7 @@ func TestAddTask_AppearsInTodoGroup(t *testing.T) {
 	}
 	a, _ := loadApp(dir)
 
-	a2, _ := a.Update(keyMsg("a"))
+	a2, _ := a.Update(keyMsg("n"))
 	a3 := a2.(app)
 	for _, ch := range "New task" {
 		m, _ := a3.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{ch}})
@@ -153,7 +153,7 @@ func TestAddTask_IdsIncrement(t *testing.T) {
 	}
 
 	a, _ := loadApp(dir)
-	a2, _ := a.Update(keyMsg("a"))
+	a2, _ := a.Update(keyMsg("n"))
 	a3 := a2.(app)
 	for _, ch := range "Second task" {
 		m, _ := a3.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{ch}})

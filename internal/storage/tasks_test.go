@@ -105,6 +105,65 @@ func TestLoadAll(t *testing.T) {
 	}
 }
 
+func TestRoundTrip_WithOrderAndTimeSpent(t *testing.T) {
+	dir := t.TempDir()
+	activeSince := time.Date(2026, 4, 14, 9, 0, 0, 0, time.UTC)
+	task := model.Task{
+		ID:          1,
+		Title:       "Tracked task",
+		State:       model.StateActive,
+		Order:       3,
+		TimeSpent:   600,
+		ActiveSince: &activeSince,
+		CreatedAt:   time.Date(2026, 4, 14, 8, 0, 0, 0, time.UTC),
+		UpdatedAt:   time.Date(2026, 4, 14, 9, 0, 0, 0, time.UTC),
+	}
+	if err := Write(dir, task); err != nil {
+		t.Fatalf("Write: %v", err)
+	}
+	path := filepath.Join(dir, model.FormatID(task.ID)+".md")
+	got, err := Read(path)
+	if err != nil {
+		t.Fatalf("Read: %v", err)
+	}
+	if got.Order != 3 {
+		t.Errorf("Order: got %d, want 3", got.Order)
+	}
+	if got.TimeSpent != 600 {
+		t.Errorf("TimeSpent: got %d, want 600", got.TimeSpent)
+	}
+	if got.ActiveSince == nil {
+		t.Fatal("ActiveSince: expected non-nil")
+	}
+	if !got.ActiveSince.Equal(activeSince) {
+		t.Errorf("ActiveSince: got %v, want %v", got.ActiveSince, activeSince)
+	}
+}
+
+func TestRoundTrip_MissingOrderDefaultsToZero(t *testing.T) {
+	dir := t.TempDir()
+	// Write a task, then manually strip the order field from the file.
+	task := model.Task{
+		ID:        1,
+		Title:     "Old task",
+		State:     model.StateTodo,
+		Order:     0,
+		CreatedAt: time.Date(2026, 4, 14, 8, 0, 0, 0, time.UTC),
+		UpdatedAt: time.Date(2026, 4, 14, 8, 0, 0, 0, time.UTC),
+	}
+	if err := Write(dir, task); err != nil {
+		t.Fatalf("Write: %v", err)
+	}
+	path := filepath.Join(dir, model.FormatID(task.ID)+".md")
+	got, err := Read(path)
+	if err != nil {
+		t.Fatalf("Read: %v", err)
+	}
+	if got.Order != 0 {
+		t.Errorf("Order missing from file should default to 0, got %d", got.Order)
+	}
+}
+
 func TestNextID_EmptyDir(t *testing.T) {
 	dir := t.TempDir()
 	id, err := NextID(dir)

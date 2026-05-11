@@ -48,12 +48,12 @@ func TestEnterKey_InactiveBecomesActive(t *testing.T) {
 	}
 	a := setupAppClean(t, tasks)
 
-	a2, _ := a.Update(keyMsg("enter"))
+	a2, _ := a.Update(tea.KeyMsg{Type: tea.KeySpace})
 	app2 := a2.(app)
 
 	for _, tk := range app2.tasks {
 		if tk.ID == 1 && tk.State != model.StateActive {
-			t.Errorf("after enter on inactive: state = %s, want active", tk.State)
+			t.Errorf("after space on inactive: state = %s, want active", tk.State)
 		}
 	}
 }
@@ -65,7 +65,7 @@ func TestEnterKey_InactiveBecomesActive_StartsTimer(t *testing.T) {
 	}
 	a := setupAppClean(t, tasks)
 
-	a2, _ := a.Update(keyMsg("enter"))
+	a2, _ := a.Update(tea.KeyMsg{Type: tea.KeySpace})
 	app2 := a2.(app)
 
 	if !app2.timer.IsRunning() {
@@ -73,9 +73,9 @@ func TestEnterKey_InactiveBecomesActive_StartsTimer(t *testing.T) {
 	}
 }
 
-// --- Done task: enter is a no-op ---
+// --- Done task: enter undoes to inactive ---
 
-func TestEnterKey_DoneTask_NoOp(t *testing.T) {
+func TestEnterKey_DoneTask_Undoes(t *testing.T) {
 	now := time.Now()
 	tasks := []model.Task{
 		{ID: 1, Title: "Already done", State: model.StateDone, DoneAt: &now,
@@ -83,12 +83,10 @@ func TestEnterKey_DoneTask_NoOp(t *testing.T) {
 	}
 	a := setupAppClean(t, tasks)
 
-	// Switch to All view so the done task is visible
+	// Switch to All view so the done task is visible.
 	a2, _ := a.Update(tea.KeyMsg{Type: tea.KeyTab})
 	app2 := a2.(app)
 
-	// Navigate to the done task
-	// In All view, done tasks appear at the bottom; find its entry index
 	doneIdx := -1
 	for i, e := range app2.entries {
 		if !e.isHeader && e.task.ID == 1 {
@@ -101,12 +99,12 @@ func TestEnterKey_DoneTask_NoOp(t *testing.T) {
 	}
 	app2.cursor = doneIdx
 
-	a3, _ := app2.Update(keyMsg("enter"))
+	a3, _ := app2.Update(tea.KeyMsg{Type: tea.KeySpace})
 	app3 := a3.(app)
 
 	for _, tk := range app3.tasks {
-		if tk.ID == 1 && tk.State != model.StateDone {
-			t.Errorf("enter on done task should be no-op; state changed to %s", tk.State)
+		if tk.ID == 1 && tk.State != model.StateInactive {
+			t.Errorf("space on done task should undo to inactive; state = %s", tk.State)
 		}
 	}
 }
@@ -219,7 +217,7 @@ func TestNoteClose_PreservesCursor(t *testing.T) {
 	}
 
 	// Open notes, close without editing
-	a3, _ := app2.Update(keyMsg("n"))
+	a3, _ := app2.Update(keyMsg("enter"))
 	a4, _ := a3.(app).Update(tea.KeyMsg{Type: tea.KeyEsc})
 	app4 := a4.(app)
 
@@ -245,7 +243,7 @@ func TestAddingMode_NavigationKeysIgnored(t *testing.T) {
 	cursorBefore := a.cursor
 
 	// Enter adding mode
-	a2, _ := a.Update(keyMsg("a"))
+	a2, _ := a.Update(keyMsg("n"))
 	// Send j — should go to textinput, not move list cursor
 	a3, _ := a2.(app).Update(keyMsg("j"))
 	app3 := a3.(app)

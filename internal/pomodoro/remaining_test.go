@@ -38,12 +38,14 @@ func TestRemaining_DuringBreak(t *testing.T) {
 	start := time.Now()
 	tm.Start(start)
 
-	// Advance past the work interval to trigger a transition
-	tm.Tick(start.Add(25 * time.Minute))
+	// Advance past the work interval to trigger a transition, then user advances to break
+	boundary := start.Add(25 * time.Minute)
+	tm.Tick(boundary)
+	tm.Advance(boundary) // simulate user pressing space to start break
 
 	// Now in break phase; check remaining
 	elapsed := 2 * time.Minute
-	remaining, phase := tm.Remaining(start.Add(25*time.Minute + elapsed))
+	remaining, phase := tm.Remaining(boundary.Add(elapsed))
 
 	want := 5*time.Minute - elapsed
 	if remaining != want {

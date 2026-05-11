@@ -1,6 +1,7 @@
 package tui
 
 import (
+	"sort"
 	"time"
 
 	"github.com/nicko/gorganized/internal/model"
@@ -25,9 +26,29 @@ func today() time.Time {
 	return time.Date(now.Year(), now.Month(), now.Day(), 0, 0, 0, 0, now.Location())
 }
 
+// sortByOrder sorts tasks ascending by Order field (lower = higher priority).
+func sortByOrder(tasks []model.Task) {
+	sort.Slice(tasks, func(i, j int) bool {
+		return tasks[i].Order < tasks[j].Order
+	})
+}
+
+// sortByDoneAtDesc sorts tasks by DoneAt descending (most recently done first).
+func sortByDoneAtDesc(tasks []model.Task) {
+	sort.Slice(tasks, func(i, j int) bool {
+		if tasks[i].DoneAt == nil {
+			return false
+		}
+		if tasks[j].DoneAt == nil {
+			return true
+		}
+		return tasks[i].DoneAt.After(*tasks[j].DoneAt)
+	})
+}
+
 // groupForToday groups tasks for the Today view.
 // Order: Active → Inactive → Todo → Done (only tasks done today).
-// Empty groups are omitted.
+// Empty groups are omitted. Tasks within non-done groups are sorted by Order.
 func groupForToday(tasks []model.Task, midnight time.Time) []stateGroup {
 	buckets := map[model.State][]model.Task{
 		model.StateActive:   {},
@@ -58,6 +79,11 @@ func groupForToday(tasks []model.Task, midnight time.Time) []stateGroup {
 	var groups []stateGroup
 	for _, s := range order {
 		if len(buckets[s]) > 0 {
+			if s == model.StateDone {
+				sortByDoneAtDesc(buckets[s])
+			} else {
+				sortByOrder(buckets[s])
+			}
 			groups = append(groups, stateGroup{state: s, tasks: buckets[s]})
 		}
 	}
@@ -66,7 +92,7 @@ func groupForToday(tasks []model.Task, midnight time.Time) []stateGroup {
 
 // groupForAll groups tasks for the All view.
 // Order: Active → Inactive → Todo → Done.
-// Empty groups are omitted.
+// Empty groups are omitted. Tasks within non-done groups are sorted by Order.
 func groupForAll(tasks []model.Task) []stateGroup {
 	buckets := map[model.State][]model.Task{
 		model.StateActive:   {},
@@ -88,6 +114,11 @@ func groupForAll(tasks []model.Task) []stateGroup {
 	var groups []stateGroup
 	for _, s := range order {
 		if len(buckets[s]) > 0 {
+			if s == model.StateDone {
+				sortByDoneAtDesc(buckets[s])
+			} else {
+				sortByOrder(buckets[s])
+			}
 			groups = append(groups, stateGroup{state: s, tasks: buckets[s]})
 		}
 	}
@@ -164,4 +195,60 @@ func prevTaskIndex(entries []flatEntry, cur int) int {
 		}
 	}
 	return cur
+}
+
+// maxOrderForState returns the highest Order value among tasks with the given state, or 0.
+func maxOrderForState(tasks []model.Task, state model.State) int {
+	max := 0
+	for _, t := range tasks {
+		if t.State == state && t.Order > max {
+			max = t.Order
+		}
+	}
+	return max
+}
+
+// tasksInSameGroup returns all tasks sharing the same state as the entry at cursor.
+// Returns nil if cursor is on a header or out of bounds.
+func tasksInSameGroup(entries []flatEntry, cursor int) []model.Task {
+	if cursor < 0 || cursor >= len(entries) || entries[cursor].isHeader {
+		return nil
+	}
+	state := entries[cursor].task.State
+	var group []model.Task
+	for _, e := range entries {
+		if !e.isHeader && e.task.State == state {
+			group = append(group, e.task)
+		}
+	}
+	return group
+}
+
+// hasDuplicateOrders returns true if any two tasks in the slice share an Order value,
+// or if any task has Order == 0.
+func hasDuplicateOrders(tasks []model.Task) bool {
+	seen := make(map[int]bool)
+	for _, t := range tasks {
+		if t.Order == 0 || seen[t.Order] {
+			return true
+		}
+		seen[t.Order] = true
+	}
+	return false
+}
+
+// normaliseOrders assigns sequential 1-based Order values to tasks sorted by their
+// current Order (or by CreatedAt if all are zero). Returns the updated slice.
+func normaliseOrders(tasks []model.Task) []model.Task {
+	// Sort by existing order first; fall back to created_at for ties/zeros.
+	sort.Slice(tasks, func(i, j int) bool {
+		if tasks[i].Order != tasks[j].Order {
+			return tasks[i].Order < tasks[j].Order
+		}
+		return tasks[i].CreatedAt.Before(tasks[j].CreatedAt)
+	})
+	for i := range tasks {
+		tasks[i].Order = i + 1
+	}
+	return tasks
 }

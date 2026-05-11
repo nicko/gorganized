@@ -97,6 +97,16 @@ func (idx *Index) Search(query string) ([]Result, error) {
 	return results, rows.Err()
 }
 
+// Remove deletes a task from the knowledge base (undo-done path).
+// No-ops if the task was never indexed.
+func (idx *Index) Remove(taskID int) error {
+	_, err := idx.db.Exec(`DELETE FROM kb WHERE task_id = ?`, taskID)
+	if err != nil {
+		return fmt.Errorf("remove: %w", err)
+	}
+	return nil
+}
+
 // sanitizeFTS5 escapes a user query for safe use in an FTS5 MATCH expression.
 // It removes FTS5 special characters and returns a quoted phrase.
 func sanitizeFTS5(query string) string {

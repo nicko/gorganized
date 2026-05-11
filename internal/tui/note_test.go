@@ -27,11 +27,11 @@ func TestNoteKey_EntersEditingMode(t *testing.T) {
 	tasks := []model.Task{makeTaskWithNotes(1, "existing notes")}
 	a := setupApp(t, tasks)
 
-	a2, _ := a.Update(keyMsg("n"))
+	a2, _ := a.Update(keyMsg("enter"))
 	app2 := a2.(app)
 
 	if !app2.editingNote {
-		t.Error("after pressing 'n', app should be in note editing mode")
+		t.Error("after pressing 'enter', app should be in note editing mode")
 	}
 }
 
@@ -40,7 +40,7 @@ func TestNoteEditor_PrefilledWithExistingNotes(t *testing.T) {
 	tasks := []model.Task{makeTaskWithNotes(1, notes)}
 	a := setupApp(t, tasks)
 
-	a2, _ := a.Update(keyMsg("n"))
+	a2, _ := a.Update(keyMsg("enter"))
 	app2 := a2.(app)
 
 	if app2.noteEditor.Value() != notes {
@@ -66,7 +66,7 @@ func TestNoteEditor_EscSavesAndCloses(t *testing.T) {
 	}
 
 	// Open notes
-	a2, _ := a.Update(keyMsg("n"))
+	a2, _ := a.Update(keyMsg("enter"))
 
 	// Type additional content
 	a3 := a2.(app)
@@ -110,11 +110,11 @@ func TestNoteEditor_NoTaskSelected_DoesNothing(t *testing.T) {
 	// App with no tasks — no task to open notes for
 	a := setupApp(t, nil)
 
-	a2, _ := a.Update(keyMsg("n"))
+	a2, _ := a.Update(keyMsg("enter"))
 	app2 := a2.(app)
 
 	if app2.editingNote {
-		t.Error("n with no task selected should not enter editing mode")
+		t.Error("enter with no task selected should not enter editing mode")
 	}
 }
 
@@ -131,7 +131,7 @@ func TestNoteEditor_EscOnEmptyNotesStillSaves(t *testing.T) {
 	}
 
 	a, _ := loadApp(dir)
-	a2, _ := a.Update(keyMsg("n"))
+	a2, _ := a.Update(keyMsg("enter"))
 
 	a3 := a2.(app)
 	a3.noteEditor.SetValue("") // clear notes
@@ -150,7 +150,7 @@ func TestNoteEditor_OtherKeysForwardedToTextarea(t *testing.T) {
 	tasks := []model.Task{makeTaskWithNotes(1, "")}
 	a := setupApp(t, tasks)
 
-	a2, _ := a.Update(keyMsg("n"))
+	a2, _ := a.Update(keyMsg("enter"))
 	app2 := a2.(app)
 
 	// Type a character — should go to the textarea, not trigger list navigation
