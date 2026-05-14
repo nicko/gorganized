@@ -1,6 +1,7 @@
 package tui
 
 import (
+	"fmt"
 	"strings"
 	"time"
 
@@ -31,8 +32,9 @@ var (
 )
 
 // renderPreview renders the right-hand preview panel for the given task.
+// pomodoroCount is the number of completed work intervals (only meaningful when task is active).
 // width is the usable column count; height is the terminal height minus the status bar.
-func renderPreview(task model.Task, width, height int) string {
+func renderPreview(task model.Task, pomodoroCount int, width, height int) string {
 	if task.ID == 0 {
 		return stylePreviewPlaceholder.Render("  No task selected.")
 	}
@@ -59,6 +61,12 @@ func renderPreview(task model.Task, width, height int) string {
 	// Created
 	sb.WriteString(stylePreviewMeta.Render("Created: "+task.CreatedAt.Local().Format("2006-01-02 15:04")))
 	sb.WriteString("\n")
+
+	// Pomodoros — only shown when task is active
+	if task.State == model.StateActive {
+		sb.WriteString(stylePreviewMeta.Render(fmt.Sprintf("Pomodoros: %d done", pomodoroCount)))
+		sb.WriteString("\n")
+	}
 
 	// Divider
 	sb.WriteString(stylePreviewDivider.Render(strings.Repeat("─", width-2)))

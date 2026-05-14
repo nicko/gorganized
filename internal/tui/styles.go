@@ -50,4 +50,18 @@ var (
 			Foreground(lipgloss.Color("241")).
 			PaddingLeft(1).
 			PaddingRight(1)
+
+	styleStatusBarWork = lipgloss.NewStyle().
+				Background(lipgloss.Color("28")).
+				Foreground(lipgloss.Color("255")).
+				Bold(true).
+				PaddingLeft(1).
+				PaddingRight(1)
+
+	styleStatusBarBreak = lipgloss.NewStyle().
+				Background(lipgloss.Color("136")).
+				Foreground(lipgloss.Color("255")).
+				Bold(true).
+				PaddingLeft(1).
+				PaddingRight(1)
 )
